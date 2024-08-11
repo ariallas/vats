@@ -1,0 +1,22 @@
+all:
+  hosts:
+    manager-host:
+    worker-host-1:
+    worker-host-2:
+      swarm_node_labels:
+        some_label: 'true'
+  vars:
+    vault_path_inventory: secret-path/data/secret-key,inventory_secrets.yaml
+
+    swarm_manager_host: manager-host
+
+    filebeat_index: index-name
+
+managers:
+  hosts:
+    manager-host:
+
+workers:
+  hosts:
+    worker-host-1:
+    worker-host-2:

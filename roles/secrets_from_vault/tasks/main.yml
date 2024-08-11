@@ -1,0 +1,154 @@
+---
+
+# Pulls secrets from  vault and assignes Ansible connection variables
+
+- name: Get vault_token from environmental variable, if it's not already defined
+  run_once: true
+  set_fact:
+    vault_token: "{{ lookup('env', 'VAULT_TOKEN') }}"
+  when: vault_token is not defined
+
+- name: Make sure we have vault_token
+  run_once: true
+  assert:
+    that: vault_token
+    msg: "Either vault_token Ansible variable or VAULT_TOKEN environmental variable has to be set"
+    quiet: true
+
+
+- name: Ask user to update to vault_path_secrets_v2
+  assert:
+    that:
+      - vault_path_secrets is not defined
+    msg: "'vault_path_secrets' is deprecated - please upgrade to vault_path_secrets_v2 or downgrade VATS to 1.2.12"
+    quiet: true
+
+- name: Set default value for vault_path_secrets_v2
+  set_fact:
+    vault_path_secrets_v2: []
+  when: vault_path_secrets_v2 is not defined
+
+- name: Check that vault_path_secrets_v2 is a list
+  assert:
+    that:
+      - vault_path_secrets_v2 | type_debug == "list"
+    msg: "'vault_path_secrets_v2' must be a list"
+    quiet: true
+
+- name: Check that items in vault_path_secrets_v2 are correct
+  assert:
+    that:
+      - item.path is defined
+      - item.key is defined
+      - (item.format is not defined) or (item.format == 'yaml' or item.format == 'string')
+    msg: "Incorrect format for vault_path_secrets_v2 for item {{ item }}"
+    quiet: true
+  loop: "{{ vault_path_secrets_v2 }}"
+
+
+
+# Разделить строки в vault_path_inventory на путь к секрету и имя ключа внутри секрета
+- name: Split vault_path_inventory
+  vars:
+    vault_path_inventory_split: "{{ vault_path_inventory | default(',') | split(',') }}"
+  set_fact:
+    vault_path_inventory_dict:
+      src_path: "{{ vault_path_inventory_split[0] }}"
+      src_key: "{{ vault_path_inventory_split[1] }}"
+
+# Разделить строки в vault_path_secrets_v2 на путь к секрету и имя ключа внутри секрета,
+# добавить значения параметров по умолчанию
+- name: Parse vault_path_secrets_v2
+  vars:
+    vault_path_secrets_split: "{{ item.path | split(',') }}"
+    parsed_item:
+      src_path: "{{ vault_path_secrets_split[0] }}"
+      src_key: "{{ vault_path_secrets_split[1] }}"
+      key: "{{ item.key }}"
+      format: "{{ item.format | default('yaml') }}"
+  set_fact:
+    vault_path_secrets_parsed: |
+      {{ vault_path_secrets_parsed | default([]) + [parsed_item] }}
+  loop: "{{ vault_path_secrets_v2 }}"
+
+
+- name: Compile a list of unique vault_paths from all hosts in the play
+  run_once: true
+  vars:
+    host_secret_paths:    "{{  hostvars[item].vault_path_secrets_parsed|default([]) | map(attribute='src_path') }}"
+    host_inventory_paths: "{{ [hostvars[item].vault_path_inventory_dict.src_path] }}"
+
+    host_vault_paths: "{{ host_secret_paths + host_inventory_paths }}"
+  set_fact:
+    all_hosts_vault_paths: "{{ (all_hosts_vault_paths|default([]) + host_vault_paths) | unique }}"
+  loop: "{{ ansible_play_hosts_all }}"
+
+- name: Retrieve secrets from {{ vault_url }}
+  run_once: true
+  vars:
+    vault_string:          "secret={{ item }} token={{ vault_token }} url={{ vault_url }} retries=3"
+    current_vault_secrets: "{{ lookup('hashi_vault', vault_string) }}"
+    vault_secrets_by_link: {}
+  set_fact:
+    vault_secrets_by_link: "{{ vault_secrets_by_link | combine({ item: current_vault_secrets }) }}"
+  loop: "{{ all_hosts_vault_paths }}"
+  when: item != "" and item not in vault_secrets_by_link
+
+# Для каждого `yaml` секрета, сделать его доступным как словарь через переменную `secrets.<key>`
+- name: Add all YAML secrets to 'secrets' dict 
+  vars:
+    secret_as_string: "{{ vault_secrets_by_link[item.src_path][item.src_key] }}"
+    secret_as_dict: "{{ {item.key: (secret_as_string | from_yaml)} }}"
+  set_fact:
+    secrets: "{{ secrets | default({}) | combine(secret_as_dict, recursive=true) }}"
+  loop: "{{ vault_path_secrets_parsed|default([]) }}"
+  when: item.format == "yaml"
+
+# Для каждого `string` секрета, сделать его доступным как строку через переменную `secrets.<key>`
+- name: Add all STRING secrets to 'secrets' dict 
+  vars:
+    secret_as_string: "{{ vault_secrets_by_link[item.src_path][item.src_key] }}"
+    secret_as_dict: "{{ {item.key: secret_as_string} }}"
+  set_fact:
+    secrets: "{{ secrets | default({}) | combine(secret_as_dict, recursive=true) }}"
+  loop: "{{ vault_path_secrets_parsed|default([]) }}"
+  when: item.format == "string"
+
+
+- name: Set inventory secrets per host
+  vars:
+    inventory_secrets_full: "{{ vault_secrets_by_link[vault_path_inventory_dict.src_path][vault_path_inventory_dict.src_key] | from_yaml }}"
+    inventory_secrets:      "{{ inventory_secrets_full[inventory_hostname] }}"
+  set_fact:
+    # Set facts required for connection
+    # All these variables MUST be set in the vault, except ansible_port
+    ansible_host:               "{{ inventory_secrets['ansible_host']               }}"
+    ansible_port:               "{{ inventory_secrets['ansible_port'] | default(22) }}"
+    ansible_user:               "{{ inventory_secrets['ansible_user']               }}"
+    ansible_password:           "{{ inventory_secrets['ansible_password']           }}"
+    ansible_become_user:        "{{ inventory_secrets['ansible_become_user']        }}"
+    ansible_become_password:    "{{ inventory_secrets['ansible_become_password']    }}"
+    ansible_become_method:      "{{ inventory_secrets['ansible_become_method']      }}"
+    # ansible_python_interpreter: "{{ inventory_secrets['ansible_python_interpreter'] | default('/usr/bin/python3') }}"
+  when: vault_path_inventory_dict.src_path != '' and inventory_hostname != 'localhost'
+
+
+
+# - name: See results
+#   debug:
+#     var: "{{ item }}"
+#   loop:
+#     - all_hosts_vault_paths
+#     - ansible_host
+#     - secrets
+
+
+# This also works, apparantely, but it's some undocumented black magic
+# https://stackoverflow.com/questions/38143647/set-fact-with-dynamic-key-name-in-ansible
+# - name: Set inventory secrets per host
+#   vars:
+#     inventory_secrets_full: "{{ vault_secrets_by_link[vault_path_inventory_dict.path][vault_path_inventory_dict.name] | from_yaml }}"
+#     inventory_secrets:      "{{ inventory_secrets_full[inventory_hostname] }}"
+#   set_fact:
+#     "{{ item.key }}": "{{ item.value }}"
+#   loop: "{{ inventory_secrets | dict2items }}"

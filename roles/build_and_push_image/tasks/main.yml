@@ -1,0 +1,27 @@
+- name: Log in to docker on localhost
+  connection: local
+  run_once: true
+  import_role:
+    name: va.vats.docker_login
+
+- name: Check if {{ image_name }} already exists in remote repository
+  connection: local
+  run_once: true
+  shell: docker manifest inspect {{ image_name }} > /dev/null
+  register: docker_manifest_inspect_result
+  changed_when: docker_manifest_inspect_result.rc == 1
+  failed_when: false
+  when: not (overwrite_image_tag | bool)
+
+- name: Locally build and push image {{ image_name }} if it does not exist in remote repository or overwrite_image_tag flag is set
+  connection: local
+  run_once: true
+  docker_image: # Buildkit cannot be used here, only through shell command
+    name: "{{ image_name }}"
+    build:  
+      path: "{{ build_path }}"   # Default is: ../
+    push: true
+    source: build
+    force_tag: true
+    force_source: true
+  when: (overwrite_image_tag | bool) or docker_manifest_inspect_result.rc == 1

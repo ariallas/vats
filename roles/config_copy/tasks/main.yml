@@ -1,0 +1,95 @@
+---
+
+- name: "Check that ~ is not used in workdir: {{ workdir }}"
+  assert:
+    that:
+      - not workdir is search("~")
+    msg: "Do not use '~' in workdir variable, specify full path. '~' has different meanings in super-user mode and not."
+    quiet: true
+  tags:
+    - config_copy
+
+- name: Create workdir {{ workdir }}
+  become: true
+  file:
+    path:  "{{ workdir }}"
+    owner: "{{ ansible_user }}"
+    state: directory
+  tags:
+    - config_copy
+
+# Скопировать обычные файлы, указанные в 'fileglobs'
+- name: Copy all listed fileglobs to {{ workdir }}
+  copy:
+    src:  "{{ item }}"
+    dest: "{{ workdir }}/{{ item | basename }}"
+    mode: 0644
+  with_fileglob: "{{ fileglobs }}"
+  register: copy_result
+  when: fileglobs is defined
+  tags:
+    - config_copy
+
+# Скопировать и шаблонизировать jinja2 шаблоны, указанные в 'template_fileglobs'
+- name: Copy all listed template fileglobs to {{ workdir }}, remove .j2 extension
+  template:
+    src:  "{{ item }}"
+    dest: "{{ workdir }}/{{ item | basename | replace('.j2','') }}"
+    mode: 0644
+  with_fileglob: "{{ template_fileglobs }}"
+  register: template_result
+  when: template_fileglobs is defined
+  tags:
+    - config_copy
+
+# Создать файлы из строковых переменных, указанных в 'contents'
+- name: Copy all listed contents to {{ workdir }}
+  copy:
+    content: "{{ item.content }}"
+    dest:    "{{ workdir }}/{{ item.dest }}"
+    mode: 0644
+  with_items: "{{ contents }}"
+  register: content_result
+  when: contents is defined
+  tags:
+    - config_copy
+
+- name: Make sure all fileglobs has been copied
+  assert:
+    that: (template_fileglobs is not defined or template_fileglobs|length <= template_result.results|length) and (fileglobs is not defined or fileglobs|length <= copy_result.results|length)
+    msg: Some of your files have not been copied - check previous commands output
+    quiet: true
+  tags:
+    - config_copy
+
+- name: Populate checksums and compose_configs
+  vars:
+    combined_results: "{{ copy_result.results|default([]) + template_result.results|default([]) + content_result.results|default([]) }}"
+  
+    file_dest:     "{{ item['dest'] }}"
+    file_basename: "{{ item['dest'] | basename }}"
+    file_checksum: "{{ item['checksum'] }}"
+    checksum_dict: "{{ { file_basename: file_checksum } }}"
+
+    compose_config_name: "{{   file_basename + '-' + file_checksum }}"
+    compose_config:      "{{ { file_basename: { 'name': compose_config_name, 'file': file_dest } } }}"
+  set_fact:
+    # Dict of { '<basename>': '<checksum>' } for all copied files
+    checksums:       "{{ checksums|default({}) | combine( checksum_dict  ) }}"
+
+    # Dict of { '<basename>': { 'name': '<basename>-<checksum>', 'file': '<dest>' } } 
+    # For use in docker-compose config
+    compose_configs: "{{ compose_configs|default({}) | combine( compose_config ) }}"
+  loop: "{{ combined_results }}"
+  tags:
+    - config_copy
+
+
+
+# - name: Debug output
+#   debug:
+#     var: "{{ item }}"
+#   loop:
+#     - checksums
+#     - ansible_search_path
+#     - compose_configs

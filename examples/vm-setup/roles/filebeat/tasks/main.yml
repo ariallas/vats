@@ -1,0 +1,9 @@
+- import_role:
+    name: va.vats.generic_deploy
+  vars:
+    compose_template_path: filebeat.compose.yaml.j2
+    template_fileglobs:
+      - filebeat.yml.j2
+
+    stack_name: filebeat
+    workdir:    /home/{{ ansible_user }}/filebeat

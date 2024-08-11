@@ -1,0 +1,13 @@
+# - name: Debug docker docker_login
+#   debug:
+#     msg: "{{ item }}"
+#   loop:
+#     - docker_registry
+#     - secrets.vats.docker_user
+#     - secrets.vats.docker_token
+
+- name: Log in to docker registry {{ docker_registry }} as {{ secrets.vats.docker_user }}
+  docker_login:
+    registry: "{{ docker_registry }}"
+    username: "{{ secrets.vats.docker_user  }}"
+    password: "{{ secrets.vats.docker_token }}"

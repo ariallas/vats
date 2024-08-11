@@ -1,0 +1,9 @@
+- import_role:
+    name: va.vats.init
+
+- name: Print connection message
+  debug:
+    msg:
+      - "Your connection string for node {{ inventory_hostname }} is"
+      - "sshpass -p '{{ ansible_password }}' ssh {{ ansible_user }}@{{ ansible_host }} -p {{ ansible_port | default(22) }} # {{ inventory_hostname }}"
+      - "Become method is **{{ ansible_become_method }}** and root password is **{{ ansible_become_password }}**"

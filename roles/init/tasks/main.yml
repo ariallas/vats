@@ -1,0 +1,17 @@
+# Import all the default roles
+
+- import_role:
+    name: va.vats.default_vars
+  tags:
+    - always
+
+- import_role:
+    name: va.vats.secrets_from_vault
+  tags:
+    - always
+
+- import_role: 
+    name: va.vats.first_contact
+  tags:
+    - always
+  when: inventory_hostname != 'localhost'

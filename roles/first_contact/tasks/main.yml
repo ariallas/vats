@@ -1,0 +1,17 @@
+- name: Check known_hosts for {{ inventory_hostname }}
+  # connection: local
+  delegate_to: localhost
+  shell: ssh-keygen -F {{ ansible_host }}
+  register: has_entry_in_known_hosts_file
+  changed_when: false
+  failed_when:  false
+  ignore_errors: true
+
+- name: Add/update the public key in the '{{ ssh_known_hosts_file }}'
+  # connection: local
+  delegate_to: localhost
+  vars:
+    ssh_known_hosts_file: "{{ lookup('env','HOME') + '/.ssh/known_hosts' }}"
+  shell: "ssh-keyscan -H {{ ansible_host }} >> {{ ssh_known_hosts_file }}"
+  when:         has_entry_in_known_hosts_file.rc == 1
+  changed_when: has_entry_in_known_hosts_file.rc == 1

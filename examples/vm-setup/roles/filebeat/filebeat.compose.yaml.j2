@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+
+  filebeat:
+    image: filebeat:7.14.2
+    user:  root
+    labels:
+      co.elastic.logs/enabled: "false"  # Don't process own logs
+    volumes:
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - filebeat-registry:/usr/share/filebeat/data:rw
+    configs:
+      - source: filebeat-conf
+        target: /usr/share/filebeat/filebeat.yml
+    environment:
+      TZ: Europe/Moscow
+    deploy:
+      mode: global # One container per node
+
+configs:
+  filebeat-conf: {{ compose_configs['filebeat.yml'] }}
+
+volumes:
+  filebeat-registry:

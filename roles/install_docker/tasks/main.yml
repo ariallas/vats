@@ -1,0 +1,53 @@
+---
+- name: Install prerequisites
+  become: true
+  apt:
+    name:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - gnupg2
+      - software-properties-common
+      - python3-jsondiff
+      - python3-yaml
+    update_cache: true
+    state: "{{ apt_package_state }}"
+
+- name: Add Docker GPG apt Key
+  become: true
+  apt_key:
+    url: https://download.docker.com/linux/{{ distribution }}/gpg
+    state: present
+
+- name: Add Docker Repository
+  become: true
+  apt_repository:
+    repo: "deb [arch=amd64] https://download.docker.com/linux/{{ distribution }} {{ distribution_release }} stable"
+    state: present
+    update_cache: true
+
+- name: Update apt cache and install docker-ce
+  become: true
+  apt:
+    name:
+      - docker-ce
+      - python3-docker
+    state: "{{ apt_package_state }}"
+    update_cache: false
+
+- name: Run and enable docker
+  become: true
+  service:
+    name: docker
+    state: started
+    enabled: true
+
+- name: Add user to "docker" group
+  become: true
+  user:
+    name: "{{ ansible_user }}"
+    groups: docker
+    append: true
+  notify:
+    - Restart Docker
+    - Reset SSH connection # Required to apply group change

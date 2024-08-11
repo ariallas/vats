@@ -1,0 +1,3 @@
+local_build: false
+stack_prune: true
+sync_dirs: []

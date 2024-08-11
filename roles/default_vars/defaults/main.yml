@@ -1,0 +1,2 @@
+# Can put some default global variables here, like docker_regisry
+docker_registry: docker.registry.url.ru  # Needs to bi filled

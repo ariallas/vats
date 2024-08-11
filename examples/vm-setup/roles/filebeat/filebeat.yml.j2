@@ -1,0 +1,81 @@
+name: {{ inventory_hostname }} # Will count as hostname
+
+filebeat.config:
+  modules:
+    path: ${path.config}/modules.d/*.yml
+    reload.enabled: false
+
+filebeat.autodiscover.providers:
+  - type: docker
+    hints.enabled: true
+    labels.dedot:  true
+    templates:
+      ### Nginx template
+      - condition:
+          contains:
+            docker.container.image: nginx
+        config:
+          - module: nginx
+            access.input:
+              type:   container
+              stream: stdout
+              paths:
+                - /var/lib/docker/containers/${data.docker.container.id}/*.log
+            error.input:
+              type:   container
+              stream: stderr
+              paths:
+                - /var/lib/docker/containers/${data.docker.container.id}/*.log
+      ### Python template - assumes default loguru format:
+      ### 2022-09-13 12:53:36.123 | INFO     | __main__:<module>:9 - An info message. 
+      - condition:
+          equals:
+            docker.container.labels.orv.log.parser: "python"
+        config:
+          - type: container
+            paths:
+              - /var/lib/docker/containers/${data.docker.container.id}/*.log
+            multiline:
+              type:    pattern
+              # Regular expression for date, possibly starting with ansi code for green color
+              pattern: '^(\x1B\[32m)?[0-9]{4}-[0-9]{2}-[0-9]{2}'
+              negate:  true
+              match:   after
+            # Pipeline is setup in kibana
+            pipeline: orv-python 
+
+        # Json template can also go here, if needed: https://www.elastic.co/guide/en/beats/filebeat/7.14/filebeat-reference-yml.html
+
+processors:
+  # Drop unnecessary fields
+  - drop_fields:
+      fields: ["agent", "ecs.version", "docker.container.labels.com_docker_swarm_task",
+        "docker.container.labels.com_docker_swarm_task_id", "docker.container.labels.com_docker_swarm_task_name",
+        "docker.container.labels.co_elastic_logs/multiline_pattern", "docker.container.labels.co_elastic_logs/multiline_negate",
+        "docker.container.labels.co_elastic_logs/multiline_match"]
+      ignore_missing: true
+
+output.elasticsearch:
+  hosts:    ["https://elastic.url.ru"]
+  username: {{ secrets.filebeat.filebeat_user }}
+  password: {{ secrets.filebeat.filebeat_password }}
+
+  index: "orv-{{ filebeat_index }}-%{+yyyy-MM-dd}"
+  # It's possible to include service or other metadata in the index name
+  # index: "orv-%{[docker.container.labels.com_docker_swarm_service_name]}-%{+yyyy-MM-dd}"
+
+# For debugging, print collected logs to stdout
+# output.console.pretty: true
+
+logging:
+  level: info
+  metrics.enabled: false
+
+setup:
+  template:
+    name:    "orv"
+    pattern: "orv*"
+    enabled: false
+  ilm:
+    enabled:      false
+    check_exists: false

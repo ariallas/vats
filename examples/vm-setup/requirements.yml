@@ -1,0 +1,7 @@
+# Absible requirements, install with:
+# ansible-galaxy install -r requirements.yml
+
+collections:
+  - name: https://github.com/ariallas/vats
+    type: git
+    version: main

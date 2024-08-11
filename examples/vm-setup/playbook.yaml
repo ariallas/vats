@@ -1,0 +1,73 @@
+# 0) Get secrets from vault, add SSH keys to local known_hosts
+- name: Pull secrets from vault
+  hosts: all
+  gather_facts: false
+  roles:
+      # VAULT_TOKEN environmental variable and vault_path_* variables must be set for this to work
+    - role: va.vats.init
+      vault_path_secrets_v2:
+        - path: secret-path/data/secret-key,filebeat.yaml
+          key: filebeat
+
+# 1) Docker Installation
+- name: Install docker and neccessary packages
+  hosts: all
+  tags:
+    - install_docker
+  roles:
+    - role: va.vats.install_docker
+      # apt_package_state: latest   # Default is 'present'
+
+# 2) Docker Swarm setup
+- name: Initialize docker swarm
+  hosts: managers
+  tags:
+    - docker_swarm
+  roles:
+    - role: va.vats.docker_swarm
+      role_action: init
+
+- name: Join workers to the swarm
+  hosts: workers
+  tags:
+    - docker_swarm
+  roles:
+    - role: va.vats.docker_swarm
+      role_action: join
+
+# 3) Setup NTP time sync
+- name: Setup NTP time sync 
+  hosts: all
+  tags:
+    - ntp
+  roles:
+    - role: va.vats.ntp_setup
+
+# 4) Deploy filebeat (ELK logging agent)
+- name: Deploy filebeat agents
+  hosts: managers
+  tags:
+    - filebeat
+  roles:
+    - role: filebeat
+
+# 5) Extra tweaks
+- name: Extra tweaks
+  hosts: all
+  tags:
+    - extra
+  tasks:
+    - name: Install extra packages
+      become: true
+      apt:
+        name:
+          - sudo
+          - rsync # Required for Ansible's synchronize module
+        state: present
+
+    - name: Add '{{ ansible_user }}' user to 'sudo' group to allow 'sudo' command
+      become: true
+      user:
+        name: "{{ ansible_user }}"
+        groups: sudo
+        append: true

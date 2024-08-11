@@ -1,0 +1,45 @@
+# Настроить синхронизацию времени с NTP сервером
+
+- name: Remove conflicting ntp packages
+  become: true
+  apt:
+    name:
+      - ntp
+      - chrony
+    state: absent
+
+- name: Install systemd-timesyncd
+  become: true
+  apt:
+    name:
+      - systemd-timesyncd
+    update_cache: false
+    state: present
+
+- name: Set NTP in /etc/systemd/timesyncd.conf
+  become: true
+  copy:
+    dest: /etc/systemd/timesyncd.conf
+    content: |
+      [Time]
+      NTP=NTP.SERVER.URL.RU
+  register: timesyncd_result
+
+- name: Restart systemd-timesyncd service if timesyncd.conf has changed
+  become: true
+  systemd_service:
+    state: restarted
+    name: systemd-timesyncd
+  when: timesyncd_result.changed
+
+- name: Make sure systemd-timesyncd service is started
+  become: true
+  systemd_service:
+    enabled: true
+    state: started
+    name: systemd-timesyncd
+
+- name: Enable ntp network synchronization
+  become: true
+  shell: timedatectl set-ntp true
+  changed_when: false

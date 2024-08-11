@@ -1,0 +1,4 @@
+# If var was set outside the role, value will be kept. If it is not defined, default value from role defaults/main.yml will be set
+- name: Set default vars
+  set_fact:
+    docker_registry:  "{{ docker_registry }}"

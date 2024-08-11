@@ -1,0 +1,54 @@
+# Deploy script for a generic service
+
+- import_role:
+    name: va.vats.build_and_push_image
+  when: local_build | bool == true
+    
+- import_role:
+    name: va.vats.docker_login
+  when: secrets.vats.docker_token is defined
+
+- name: Sync static directories
+  synchronize:
+    src: "{{ item }}"
+    dest: "{{ workdir }}"
+  loop: "{{ sync_dirs }}"
+
+- name: Copy configs that could have been passed as parameters
+  import_role:
+    name: va.vats.config_copy
+  tags:
+    - config_copy
+
+- name: Get {{ compose_template_path }} file basename
+  set_fact:
+    compose_file_basename: "{{ compose_template_path | basename | replace('.j2','') }}"
+  tags:
+    - config_copy
+
+- name: Template {{ compose_template_path }} to {{ workdir }} manually
+  template:
+    src:  "{{ compose_template_path }}"
+    dest: "{{ workdir }}/{{ compose_file_basename }}"
+  tags:
+    - config_copy
+
+- name: Deploy {{ stack_name }} stack from {{ workdir }}/{{ compose_file_basename }}
+  docker_stack:
+    state: present
+    resolve_image: always
+    with_registry_auth: yes
+    prune: "{{ stack_prune }}"
+
+    name: "{{ stack_name }}"
+    compose:
+      - "{{ workdir }}/{{ compose_file_basename }}"
+
+  register: deploy_result
+
+- name: Show deploy results
+  ansible.builtin.debug:
+    msg:
+      deploy_result: "{{ deploy_result }}"
+      log_command: "To view logs for this stack (if there is only ONE service): docker logs $(docker ps -q --filter='NAME={{ stack_name }}')"
+  changed_when: deploy_result.changed

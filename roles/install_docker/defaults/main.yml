@@ -1,0 +1,4 @@
+distribution:         "{{ ansible_distribution         | lower }}"
+distribution_release: "{{ ansible_distribution_release | lower }}"
+
+apt_package_state: present

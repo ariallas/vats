@@ -1,0 +1,53 @@
+---
+# Option 1 - Initialzie Docker Swarm (for manager hosts)
+- name: Initialize docker swarm
+  when: role_action == 'init'
+
+  block:
+    # Here Docker will automatically choose address to advertise on
+    # but it will fail if there are multiple network interfaces
+    - name: Initialize docker swarm with default parameters
+      docker_swarm:
+        state: present
+      when: docker_advertise_addr is undefined
+
+    # Executed if docker_advertise_addr defined, to specify address to advertise on
+    - name: Initialize docker swarm on specific address when docker_advertise_addr is set
+      docker_swarm:
+        state: present
+        advertise_addr: "{{ docker_advertise_addr }}"
+      when: docker_advertise_addr is defined
+
+    - name: Get swarm connect token
+      command: docker swarm join-token worker
+      register: swarm_manager_join_token
+      changed_when: false
+
+    - name: Set facts to connect to a docker swarm
+      vars:
+        swarm_params: "{{ swarm_manager_join_token.stdout | split('--token ') | last | split(' ') }}"
+      set_fact:
+        swarm_worker_join_token:   "{{ swarm_params | first }}"
+        swarm_manager_remote_addr: "{{ swarm_params | last }}"
+  
+# Option 2 - Join an existing swarm (for workers hosts)
+- name: Join workers to the swarm
+  when: role_action == 'join'
+
+  vars:
+    join_token:   "{{ hostvars[swarm_manager_host].swarm_worker_join_token }}"
+    manager_addr: "{{ hostvars[swarm_manager_host].swarm_manager_remote_addr }}"
+  block:
+  - name: Join worker to the swarm
+    docker_swarm:
+      state: join
+      join_token: "{{ join_token }}"
+      remote_addrs: [ "{{ manager_addr }}" ]
+
+# Set node labels regardless of action
+- name: Set node labels
+  delegate_to: "{{ swarm_manager_host }}"
+  docker_node:
+    hostname: "{{ inventory_hostname }}"
+    labels:   "{{ swarm_node_labels | default({}) }}"
+    labels_state: replace
